@@ -38,7 +38,7 @@ function paint(){if(!U)return;const l=mine(),now=Date.now(),d0=new Date().setHou
  $("#dbl").innerHTML=Object.keys(DB).map(k=>`<div class="card" style="margin-bottom:10px"><div class="row"><b>${k}</b> <i style="color:var(--mu)">${DB[k].sci} · ${DB[k].fam} · ${DB[k].org}</i></div><div style="margin:6px 0">${DB[k].fact}</div>${U.r=="admin"?`<button class="btn alt sm" data-e="${k}">Edit fun fact</button>`:""}</div>`).join("");
  $$("[data-e]").forEach(b=>b.onclick=()=>{const v=prompt("Fun fact for "+b.dataset.e,DB[b.dataset.e].fact);if(v){DB[b.dataset.e].fact=v;S("fs_db",DB);paint()}})}
 $("#clr").onclick=()=>{if(!confirm("Clear "+(U.r=="admin"?"ALL":"your")+" history?"))return;HIST=U.r=="admin"?[]:HIST.filter(h=>h.u!=U.n);S("fs_hist",HIST);paint()};
-const th=G("fs_th")||40;$("#th").value=th;$("#thv").textContent=th;$("#th").oninput=e=>{$("#thv").textContent=e.target.value;S("fs_th",+e.target.value)};
+const th=G("fs_th2")||60;$("#th").value=th;$("#thv").textContent=th;$("#th").oninput=e=>{$("#thv").textContent=e.target.value;S("fs_th2",+e.target.value)};
 $("#thm").onclick=()=>{const r=document.documentElement,d=r.dataset.theme=="dark"||(!r.dataset.theme&&matchMedia("(prefers-color-scheme:dark)").matches);r.dataset.theme=d?"light":"dark"};
 // ---- camera
 function stopCam(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;$("#cam").classList.add("hide");$("#live").style.display="none";$("#capb").textContent="📷 Capture Image"}
@@ -49,21 +49,29 @@ $("#upb").onclick=()=>$("#file").click();
 $("#file2").onchange=$("#file").onchange=e=>{const f=e.target.files[0];if(!f)return;const i=new Image();i.onload=()=>{stopCam();const k=document.createElement("canvas");k.width=i.width;k.height=i.height;k.getContext("2d").drawImage(i,0,0);URL.revokeObjectURL(i.src);run(k)};i.src=URL.createObjectURL(f);e.target.value=""};
 // ---- classifier (colour + shape analysis, runs fully on-device)
 const PROF={Apple:[0,16,0],Orange:[27,7,0],Mango:[42,9,0],Banana:[54,5,0],Grapes:[275,35,0],Lime:[100,22,0]};
-function analyze(src){const W=96,H=96,k=document.createElement("canvas");k.width=W;k.height=H;const x=k.getContext("2d");x.drawImage(src,0,0,W,H);const d=x.getImageData(0,0,W,H).data;
- const warm=[],green=[];
- for(let i=0;i<W*H;i++){const r=d[i*4]/255,g=d[i*4+1]/255,b=d[i*4+2]/255,mx=Math.max(r,g,b),mn=Math.min(r,g,b),df=mx-mn,s=mx?df/mx:0;if(s<.38||mx<.3)continue;
-  let h=df==0?0:mx==r?((g-b)/df)%6:mx==g?(b-r)/df+2:(r-g)/df+4;h=h*60;if(h<0)h+=360;const p={h,i};
-  if(h<78||h>225)warm.push(p);else if(h<170)green.push(p)}
- let m=warm.length>=W*H*.02?warm:green;if(m.length<W*H*.015)return null;
- const sh=m.map(p=>({h:p.h>320?p.h-360:p.h,i:p.i}));let mean=sh.reduce((a,p)=>a+p.h,0)/sh.length;
- const sd=Math.sqrt(sh.reduce((a,p)=>a+(p.h-mean)**2,0)/sh.length);
- let x0=W,x1=0,y0=H,y1=0;m.forEach(p=>{const px=p.i%W,py=(p.i/W)|0;x0=Math.min(x0,px);x1=Math.max(x1,px);y0=Math.min(y0,py);y1=Math.max(y1,py)});
- const bw=x1-x0+1,bh=y1-y0+1,asp=Math.max(bw,bh)/Math.min(bw,bh),sc={};
+function analyze(src){const W=96,H=96,N=W*H,k=document.createElement("canvas");k.width=W;k.height=H;const x=k.getContext("2d");x.drawImage(src,0,0,W,H);const d=x.getImageData(0,0,W,H).data,lab=new Int8Array(N),hue=new Float32Array(N),sat=new Float32Array(N);let skin=0;
+ for(let i=0;i<N;i++){const R=d[i*4],Gc=d[i*4+1],B=d[i*4+2],r=R/255,g=Gc/255,b=B/255,mx=Math.max(r,g,b),mn=Math.min(r,g,b),df=mx-mn,s=mx?df/mx:0;
+  let h=df==0?0:mx==r?((g-b)/df)%6:mx==g?(b-r)/df+2:(r-g)/df+4;h*=60;if(h<0)h+=360;hue[i]=h>320?h-360:h;sat[i]=s;
+  const Cb=128-.168736*R-.331264*Gc+.5*B,Cr=128+.5*R-.418688*Gc-.081312*B;
+  const sk=Cb>=77&&Cb<=127&&Cr>=133&&Cr<=173&&s<.62&&(h<=50||h>=340);if(sk){skin++;continue}
+  if(s>=.45&&mx>=.3)lab[i]=(h<78||h>225)?1:(h<170?2:0)}
+ let c1=0,c2=0;for(let i=0;i<N;i++){if(lab[i]==1)c1++;else if(lab[i]==2)c2++}
+ const type=c1>=N*.03?1:2,seen=new Uint8Array(N);let best=null;
+ for(let i=0;i<N;i++){if(lab[i]!=type||seen[i])continue;const q=[i],pts=[];seen[i]=1;let x0=W,x1=0,y0=H,y1=0;
+  while(q.length){const p=q.pop();pts.push(p);const px=p%W,py=(p/W)|0;x0=Math.min(x0,px);x1=Math.max(x1,px);y0=Math.min(y0,py);y1=Math.max(y1,py);
+   for(const n of[px>0?p-1:-1,px<W-1?p+1:-1,py>0?p-W:-1,py<H-1?p+W:-1])if(n>=0&&lab[n]==type&&!seen[n]){seen[n]=1;q.push(n)}}
+  if(!best||pts.length>best.pts.length)best={pts,x0,x1,y0,y1}}
+ if(skin>N*.25||(best&&skin>best.pts.length*1.2))return{skin:true};
+ if(!best||best.pts.length<N*.04)return null;
+ const bw=best.x1-best.x0+1,bh=best.y1-best.y0+1,fill=best.pts.length/(bw*bh);if(fill<.4)return null;
+ const ms=best.pts.reduce((a,p)=>a+sat[p],0)/best.pts.length;if(ms<.5)return null;
+ const mean=best.pts.reduce((a,p)=>a+hue[p],0)/best.pts.length,sd=Math.sqrt(best.pts.reduce((a,p)=>a+(hue[p]-mean)**2,0)/best.pts.length),asp=Math.max(bw,bh)/Math.min(bw,bh),sc={};
  for(const f in PROF){const[c,s]=PROF[f];sc[f]=Math.exp(-((mean-c)**2)/(2*s*s))}
  if(asp>1.55)sc.Banana*=1.35;else sc.Banana*=.75;
  if(sd>8.5){sc.Mango*=1.25;sc.Banana*=.8}else{sc.Banana*=1.1;sc.Mango*=.85}
  const ks=Object.keys(sc).sort((a,b)=>sc[b]-sc[a]),sum=ks.reduce((a,f)=>a+sc[f],0)||1,p=sc[ks[0]]/sum;
- return{fruit:ks[0],conf:Math.min(99.4,45+55*p*Math.min(1,sc[ks[0]]*1.15)+ (p>.8?4:0)),box:[x0/W,y0/H,bw/W,bh/H]}}
+ if(p<.5||sc[ks[0]]<.25)return null;
+ return{fruit:ks[0],conf:Math.min(99.4,45+55*p*Math.min(1,sc[ks[0]]*1.15)+(p>.8?4:0)),box:[best.x0/W,best.y0/H,bw/W,bh/H]}}
 // ---- run detection with animated steps
 function run(src){busy=true;const k=$("#pv");k.width=640;k.height=480;const x=k.getContext("2d"),s=Math.max(640/src.width,480/src.height),w=src.width*s,h=src.height*s;
  x.drawImage(src,(640-w)/2,(480-h)/2,w,h);k.classList.remove("hide");$("#ph").classList.add("hide");$("#cam").classList.add("hide");
@@ -71,7 +79,7 @@ function run(src){busy=true;const k=$("#pv");k.width=640;k.height=480;const x=k.
  const set=p=>{$("#rc").style.strokeDashoffset=352*(1-p/100);$("#rt").innerHTML=(p<100?"Detecting…":"Done")+"<br>"+p+"%"};
  const t=setInterval(()=>{n++;set(Math.min(100,n*25));li[n-1]&&li[n-1].classList.add("d");if(n>=4){clearInterval(t);finish(k)}},420)}
 function finish(k){busy=false;const r=analyze(k);const min=$("#th").value;
- if(!r||r.conf<min){$("#rb").innerHTML='<div class="empty">❓ No known fruit detected.<br>Try a clearer, closer photo with good lighting.</div>';return}
+ if(!r||r.skin||r.conf<min){$("#rb").innerHTML='<div class="empty">🚫 '+(r&&r.skin?"Not a fruit (body part detected).":"No known fruit detected.")+'<br>FruitScan only detects fruits. Place one fruit close to the camera in good light.</div>';return}
  const x=k.getContext("2d");x.strokeStyle="#16c060";x.lineWidth=5;const[bx,by,bw,bh]=r.box;x.strokeRect(bx*640,by*480,bw*640,bh*480);
  x.fillStyle="#16c060";x.font="bold 22px sans-serif";const lb=r.fruit+" "+r.conf.toFixed(1)+"%";x.fillRect(bx*640-2,by*480-32,x.measureText(lb).width+16,32);x.fillStyle="#fff";x.fillText(lb,bx*640+6,by*480-9);
  const t=document.createElement("canvas");t.width=t.height=64;const sx=Math.max(0,bx*k.width),sy=Math.max(0,by*k.height);t.getContext("2d").drawImage(k,sx,sy,bw*k.width,bh*k.height,0,0,64,64);
