@@ -1,0 +1,8 @@
+{
+  "name": "Detection Fruits Information Using Image Processing",
+  "description": "An intelligent fruit detection and classification system utilizing image processing, feature extraction, and computer vision to identify fruits and display botanical names, health benefits, comprehensive nutritional info, and geographical origins.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
